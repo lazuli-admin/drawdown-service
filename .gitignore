@@ -1,0 +1,5 @@
+state.db
+node_modules
+.env
+dist
+.dev.log

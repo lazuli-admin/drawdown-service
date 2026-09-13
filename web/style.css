@@ -1,0 +1,14 @@
+body{font:14px ui-monospace,monospace;background:#111;color:#ddd;margin:2rem;max-width:960px}
+h1{font-size:16px;font-weight:normal;color:#999}
+button{background:#333;color:#ddd;border:1px solid #555;border-radius:4px;padding:4px 10px;cursor:pointer;font:inherit}
+button:hover{background:#444}
+input{background:#181818;color:#ddd;border:1px solid #555;border-radius:4px;padding:4px 8px;font:inherit;text-transform:uppercase;width:90px}
+table{border-collapse:collapse;width:100%;margin-top:1rem}
+th{color:#888;text-align:left;font-weight:normal;font-size:12px;padding:4px 8px;border-bottom:1px solid #333}
+td{padding:4px 8px;border-bottom:1px solid #222}
+.neg{color:#e66}
+.x{color:#777;padding:0 4px;background:none;border:none}
+.x:hover{color:#e66;background:none}
+.bar{height:6px;background:#c33;border-radius:2px}
+.muted{color:#777}
+#msg{color:#888;min-height:1.2em;margin:0.5rem 0}

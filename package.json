@@ -1,0 +1,23 @@
+{
+  "name": "drawdown-service",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/main.ts",
+    "test": "node --test src/math.test.ts",
+    "serve": "node src/server.ts",
+    "dev": "concurrently -k -n api,web \"node src/server.ts\" \"vite\" 2>&1 | tee .dev.log"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.18.0",
+    "dotenv": "^17.4.2",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "concurrently": "^10.0.5",
+    "vite": "^8.3.0"
+  }
+}
