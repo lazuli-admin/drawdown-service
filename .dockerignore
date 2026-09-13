@@ -1,0 +1,6 @@
+node_modules
+dist
+.env
+.dev.log
+state.db
+.git
