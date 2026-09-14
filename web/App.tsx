@@ -14,6 +14,9 @@ type Row = {
 };
 type Data = { stats: Row[]; history: Record<string, [string, number][]> };
 
+// API paths honor the vite base so the app works when proxied under a path
+const API = import.meta.env.BASE_URL + "api";
+
 const pct = (v: number, d = 1) => (v * 100).toFixed(d);
 
 function Spark({ dd }: { dd: [string, number][] }) {
@@ -36,7 +39,7 @@ export function App() {
   // read = pure DB read, never touches the upstream API
   const load = async () => {
     try {
-      setData(await (await fetch("/api/stats")).json());
+      setData(await (await fetch(API + "/stats")).json());
       setErr("");
     } catch (e) {
       setErr("api down: " + e);
@@ -48,7 +51,7 @@ export function App() {
   const update = async () => {
     setErr("");
     try {
-      const r = await fetch("/api/update", { method: "POST" });
+      const r = await fetch(API + "/update", { method: "POST" });
       if (!r.ok) setErr((await r.json()).error);
       else setData(await r.json());
     } catch (e) { setErr(String(e)); }
@@ -57,7 +60,7 @@ export function App() {
   const add = async () => {
     setErr("");
     try {
-      const r = await fetch("/api/tickers", { method: "POST", body: JSON.stringify({ ticker: sym }) });
+      const r = await fetch(API + "/tickers", { method: "POST", body: JSON.stringify({ ticker: sym }) });
       if (!r.ok) setErr((await r.json()).error);
       else { setSym(""); await load(); }
     } catch (e) { setErr(String(e)); }
@@ -78,7 +81,7 @@ export function App() {
         <tbody>
           {(data?.stats ?? []).map((r) => (
             <tr key={r.ticker}>
-              <td><b>{r.ticker}</b> <button className="x" title="remove" onClick={async () => { await fetch("/api/tickers/" + r.ticker, { method: "DELETE" }); await load(); }}>✕</button></td>
+              <td><b>{r.ticker}</b> <button className="x" title="remove" onClick={async () => { await fetch(API + "/tickers/" + r.ticker, { method: "DELETE" }); await load(); }}>✕</button></td>
               <td>{r.last_close.toFixed(2)}</td>
               <td>{r.running_peak.toFixed(2)}</td>
               <td className="neg">{pct(r.current_drawdown, 2)}%</td>
