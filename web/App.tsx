@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 type Row = {
   ticker: string;
   last_close: number;
-  running_peak: number;
   current_drawdown: number;
   drawdown_percentile: number;
   ewma_vol: number;
@@ -14,17 +13,25 @@ type Row = {
 };
 type Data = { stats: Row[]; history: Record<string, [string, number][]> };
 
-// API paths honor the vite base so the app works when proxied under a path
-const API = import.meta.env.BASE_URL + "api";
+// API paths honor the vite base when built (proxied under /labs/drawdowns in prod);
+// dev server stays at root paths
+const API = (import.meta.env.DEV ? "/" : import.meta.env.BASE_URL) + "api";
 
 const pct = (v: number, d = 1) => (v * 100).toFixed(d);
 
 function Spark({ dd }: { dd: [string, number][] }) {
   if (dd.length < 2) return null;
   const min = Math.min(...dd.map((p) => p[1]));
-  const pts = dd.map((p, i) => `${(i / (dd.length - 1)) * 100},${(p[1] / min) * 28 + 1}`).join(" ");
+  const pts = dd
+    .map((p, i) => `${(i / (dd.length - 1)) * 100},${(p[1] / min) * 28 + 1}`)
+    .join(" ");
   return (
-    <svg width="120" height="30" viewBox="0 0 100 30" preserveAspectRatio="none">
+    <svg
+      width="120"
+      height="30"
+      viewBox="0 0 100 30"
+      preserveAspectRatio="none"
+    >
       <polygon points={`0,1 ${pts} 100,1`} fill="#c33344" opacity=".4" />
       <polyline points={pts} fill="none" stroke="#e66" strokeWidth="1" />
     </svg>
@@ -45,7 +52,9 @@ export function App() {
       setErr("api down: " + e);
     }
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+  }, []);
 
   // explicit daily pull: grouped fetch -> recompute -> returns fresh stats
   const update = async () => {
@@ -54,49 +63,90 @@ export function App() {
       const r = await fetch(API + "/update", { method: "POST" });
       if (!r.ok) setErr((await r.json()).error);
       else setData(await r.json());
-    } catch (e) { setErr(String(e)); }
+    } catch (e) {
+      setErr(String(e));
+    }
   };
 
   const add = async () => {
     setErr("");
     try {
-      const r = await fetch(API + "/tickers", { method: "POST", body: JSON.stringify({ ticker: sym }) });
+      const r = await fetch(API + "/tickers", {
+        method: "POST",
+        body: JSON.stringify({ ticker: sym }),
+      });
       if (!r.ok) setErr((await r.json()).error);
-      else { setSym(""); await load(); }
-    } catch (e) { setErr(String(e)); }
+      else {
+        setSym("");
+        await load();
+      }
+    } catch (e) {
+      setErr(String(e));
+    }
   };
 
   return (
     <>
-      <h1>drawdown scanner</h1>
-      <input value={sym} placeholder="TICKER" onChange={(e) => setSym(e.target.value.toUpperCase())}
-        onKeyDown={(e) => e.key === "Enter" && sym && add()} />
-      <button onClick={add} disabled={!sym}>add</button>{" "}
-      <button onClick={update}>update</button>
-      {err && <p className="neg">{err}</p>}
+      <header>
+        <h1>drawdown scanner</h1>
+        <input
+          value={sym}
+          placeholder="TICKER"
+          onChange={(e) => setSym(e.target.value.toUpperCase())}
+          onKeyDown={(e) => e.key === "Enter" && sym && add()}
+        />
+        <button onClick={add} disabled={!sym}>
+          add
+        </button>{" "}
+        <button onClick={update}>update</button>
+        {err && <p className="neg">{err}</p>}
+      </header>
       <table>
         <thead>
-          <tr><th></th><th>close</th><th>peak</th><th>dd</th><th>pct</th><th>normDD</th><th>vol</th><th>age</th><th>recency</th><th>since</th><th>30y dd</th><th></th></tr>
+          <tr>
+            <th></th>
+            <th>close</th>
+            <th>dd</th>
+            <th>pct</th>
+            <th>normDD</th>
+            <th>vol</th>
+            <th>age</th>
+            <th>recency</th>
+            <th>since</th>
+            <th>30y dd</th>
+            <th></th>
+          </tr>
         </thead>
         <tbody>
           {(data?.stats ?? []).map((r) => (
             <tr key={r.ticker}>
-              <td><b>{r.ticker}</b> <button className="x" title="remove" onClick={async () => { await fetch(API + "/tickers/" + r.ticker, { method: "DELETE" }); await load(); }}>✕</button></td>
+              <td>
+                <b>{r.ticker}</b>
+              </td>
               <td>{r.last_close.toFixed(2)}</td>
-              <td>{r.running_peak.toFixed(2)}</td>
               <td className="neg">{pct(r.current_drawdown, 2)}%</td>
-              <td><div className="bar" style={{ width: pct(r.drawdown_percentile, 0) + "px" }} /> {pct(r.drawdown_percentile, 0)}%</td>
+              <td>
+                <div
+                  className="bar"
+                  style={{ width: pct(r.drawdown_percentile, 0) + "px" }}
+                />{" "}
+                {pct(r.drawdown_percentile, 0)}%
+              </td>
               <td>{r.normalized_drawdown.toFixed(2)}</td>
               <td>{r.ewma_vol.toFixed(4)}</td>
               <td>{r.age_days}d</td>
               <td>{r.recency_weight.toFixed(2)}</td>
               <td className="muted">{r.drawdown_start}</td>
-              <td><Spark dd={data?.history[r.ticker] ?? []} /></td>
+              <td>
+                <Spark dd={data?.history[r.ticker] ?? []} />
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
-      {data && data.stats.length === 0 && <p className="muted">no tickers yet — add one above</p>}
+      {data && data.stats.length === 0 && (
+        <p className="muted">no tickers yet — add one above</p>
+      )}
     </>
   );
 }

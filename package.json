@@ -11,10 +11,12 @@
   "dependencies": {
     "@libsql/client": "^0.18.0",
     "dotenv": "^17.4.2",
+    "node-cron": "^4.6.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },
   "devDependencies": {
+    "@types/node-cron": "^3.0.11",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "concurrently": "^10.0.5",

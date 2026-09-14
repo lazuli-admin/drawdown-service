@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import { readFileSync, existsSync } from "node:fs";
+import cron from "node-cron";
 import { addTicker, removeTicker, stats, history, daily } from "./core.ts";
 
 const json = (res: any, code: number, body: any) => {
@@ -32,6 +33,14 @@ const server = createServer(async (req, res) => {
     json(res, 500, { error: String(e.message ?? e) });
   }
 }).listen(8787, () => console.log("http://localhost:8787"));
+
+// daily pull after market close — runs in-process. 00:30 ET Tue-Sat = the prior
+// weekday's close, giving Massive ~13h to finalize the grouped day (their grouped
+// endpoint can lag on the evening itself).
+// ponytail: single in-memory scheduler; if it ever dies with the server, that's fine — restart = catch-up via min(last_date) cursor
+cron.schedule("30 0 * * 2-6", () => {
+  daily().catch((e) => console.error("scheduled daily failed:", e));
+}, { timezone: "America/New_York" });
 server.on("error", (e: any) => {
   console.error(e.code === "EADDRINUSE" ? "port 8787 busy — kill the old server first" : e);
   process.exit(1);

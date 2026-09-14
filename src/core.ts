@@ -116,6 +116,8 @@ export async function daily() {
       continue; // holiday
     }
     const watched = new Set(await watchlist());
+    let n = 0;
+    let lastDs = "";
     for (const b of j.results) {
       const t: string = b.T;
       if (!watched.has(t)) continue;
@@ -133,7 +135,10 @@ export async function daily() {
       const { dd } = step(s, ds, b.c);
       await db.execute({ sql: "INSERT OR REPLACE INTO history VALUES (?,?,?)", args: [t, ds, dd] });
       await persist(t, s, ds, b.c);
+      n++;
+      lastDs = ds;
     }
+    if (n) console.log(`updated ${n} bars through ${lastDs}`);
   }
 }
 
