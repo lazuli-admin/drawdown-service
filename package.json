@@ -6,7 +6,8 @@
     "start": "node src/main.ts",
     "test": "node --test src/math.test.ts",
     "serve": "node src/server.ts",
-    "dev": "concurrently -k -n api,web \"node src/server.ts\" \"vite\" 2>&1 | tee .dev.log"
+    "dev": "concurrently -k -n api,web \"node src/server.ts\" \"vite\" 2>&1 | tee .dev.log",
+    "env:pull": "infisical export --projectId=3f4a5caa-157d-4636-a502-990ab9d3a072 --env=dev --format=dotenv --silent | sed \"s/='\\(.*\\)'$/=\\1/\" > .env"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",

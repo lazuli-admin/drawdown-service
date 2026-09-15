@@ -13,4 +13,5 @@ td{padding:4px 8px;border-bottom:1px solid #222}
 .x:hover{color:#e66;background:none}
 .bar{height:6px;background:#c33;border-radius:2px}
 .muted{color:#777}
+.sector{font-size:11px}
 #msg{color:#888;min-height:1.2em;margin:0.5rem 0}

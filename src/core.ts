@@ -2,8 +2,8 @@ import "dotenv/config";
 import { createClient } from "@libsql/client";
 import { newSt, step, percentile } from "./math.ts";
 
-const KEY = process.env.MASSIVE_API_KEY ?? process.env.POLYGON_API_KEY;
-const BASE = "https://api.massive.com";
+const FMP = "https://financialmodelingprep.com/stable";
+const KEY = process.env.FMP_API_KEY;
 const YEARS = 30;
 const HALF_LIFE = 120; // days, matches ewma half-life
 
@@ -18,25 +18,35 @@ CREATE TABLE IF NOT EXISTS history (ticker TEXT, date TEXT, dd REAL, PRIMARY KEY
 CREATE TABLE IF NOT EXISTS state (
   ticker TEXT PRIMARY KEY, last_close REAL, running_peak REAL, current_drawdown REAL,
   drawdown_percentile REAL, ewma_variance REAL, ewma_vol REAL, normalized_drawdown REAL,
-  drawdown_start TEXT, age_days INTEGER, recency_weight REAL, last_date TEXT, updated_at TEXT);
+  drawdown_start TEXT, age_days INTEGER, recency_weight REAL, last_date TEXT, updated_at TEXT,
+  sector TEXT DEFAULT '', industry TEXT DEFAULT '');
 `);
+
+// self-migrate: add columns missing from pre-existing state tables (SQLite has no ADD COLUMN IF NOT EXISTS)
+const cols = new Set(((await db.execute("PRAGMA table_info(state)")).rows as any[]).map((r) => r.name));
+for (const c of ["sector", "industry"]) {
+  if (!cols.has(c)) await db.execute(`ALTER TABLE state ADD COLUMN ${c} TEXT DEFAULT ''`);
+}
 
 // the watchlist IS the state table — a ticker exists iff it has a state row
 export const watchlist = async (): Promise<string[]> =>
   (await db.execute("SELECT ticker FROM state ORDER BY ticker")).rows.map((r: any) => r.ticker);
 
-async function get(url2: string): Promise<any> {
-  if (!KEY) throw new Error("set MASSIVE_API_KEY (or POLYGON_API_KEY)");
-  const r = await fetch(url2 + (url2.includes("?") ? "&" : "?") + "apiKey=" + KEY);
+// FMP signals errors as HTTP 200 + {"Error Message": ...} — sniff the body
+async function fmp(path: string, params: Record<string, string>): Promise<any> {
+  if (!KEY) throw new Error("set FMP_API_KEY (npm run env:pull)");
+  const r = await fetch(`${FMP}/${path}?${new URLSearchParams({ ...params, apikey: KEY })}`);
   const j: any = await r.json();
-  if (!r.ok) throw new Error(`${url2}\n${JSON.stringify(j)}`);
+  if (j["Error Message"]) throw new Error(j["Error Message"]);
+  if (!r.ok) throw new Error(`${path}: ${r.status}`);
   return j;
 }
 
 const fmt = (d: Date) => d.toISOString().slice(0, 10);
+const asc = (a: any, b: any) => String(a.date).localeCompare(String(b.date));
 
-// pct optional: callers holding the distribution in memory (backfill) pass it in.
-async function persist(t: string, s: ReturnType<typeof newSt>, date: string, close: number, pct?: number) {
+// pct optional: backfill holds the distribution in memory and passes it in.
+async function persist(t: string, s: ReturnType<typeof newSt>, date: string, close: number, pct?: number, sector = "", industry = "") {
   const dd = close / s.peak - 1;
   const vol = Math.sqrt(s.ewmaVar);
   if (pct === undefined) {
@@ -46,43 +56,43 @@ async function persist(t: string, s: ReturnType<typeof newSt>, date: string, clo
   }
   const recency = Math.exp(-Math.LN2 * s.age / HALF_LIFE);
   await db.execute({
-    sql: "INSERT OR REPLACE INTO state VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-    args: [t, close, s.peak, dd, pct, s.ewmaVar, vol, vol ? Math.abs(dd) / vol : 0, s.peakDate, s.age, recency, date, new Date().toISOString()],
+    sql: "INSERT OR REPLACE INTO state VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+    args: [t, close, s.peak, dd, pct, s.ewmaVar, vol, vol ? Math.abs(dd) / vol : 0, s.peakDate, s.age, recency, date, new Date().toISOString(), sector, industry],
   });
 }
 
-// Once per ticker: 30y of split-adjusted daily bars. Computed fully in memory,
-// then written in batches — no per-row round trips. INSERT OR REPLACE makes a
-// partial write self-heal on retry.
+// Once per ticker: 30y of split-adjusted daily bars from FMP, computed fully in
+// memory, written in batches. INSERT OR REPLACE makes a partial write self-heal.
 export async function backfill(t: string) {
   const to = fmt(new Date());
   const from = fmt(new Date(Date.now() - YEARS * 365.25 * 864e5));
-  let url2 = `${BASE}/v2/aggs/ticker/${t}/range/1/day/${from}/${to}?adjusted=true&sort=asc&limit=50000`;
+  const bars = await fmp("historical-price-eod/full", { symbol: t, from, to });
+  const sorted = [...(Array.isArray(bars) ? bars : [])].sort(asc);
   const s = newSt();
-  let lastDate = "";
-  let lastDD = 0;
   const rows: [string, number][] = [];
-  while (url2) {
-    const page = await get(url2);
-    for (const b of page.results ?? []) {
-      const date = fmt(new Date(b.t));
-      const { dd } = step(s, date, b.c);
-      rows.push([date, dd]);
-      lastDate = date;
-      lastDD = dd;
-    }
-    url2 = page.next_url;
+  for (const b of sorted) {
+    const { dd } = step(s, String(b.date), b.close);
+    rows.push([String(b.date), dd]);
   }
+  if (!rows.length) throw new Error(`no price history from FMP for ${t}`);
   const dist = rows.slice(0, -1).map(([, dd]) => Math.abs(dd)); // percentile excludes the last day
-  const pct = percentile(dist, Math.abs(lastDD));
+  const pct = percentile(dist, Math.abs(rows[rows.length - 1][1]));
+
+  // sector/industry: best-effort — a missing label must not fail the add
+  let sector = "", industry = "";
+  try {
+    const p = await fmp("profile", { symbol: t });
+    if (p[0]) ({ sector = "", industry = "" } = p[0]);
+  } catch {}
+
   for (let i = 0; i < rows.length; i += 500) {
     await db.batch(
       rows.slice(i, i + 500).map(([date, dd]) => ({ sql: "INSERT OR REPLACE INTO history VALUES (?,?,?)", args: [t, date, dd] })),
       "write",
     );
   }
-  await persist(t, s, lastDate, s.prevClose, pct);
-  console.log(`backfilled ${t} through ${lastDate}`);
+  await persist(t, s, rows[rows.length - 1][0], s.prevClose, pct, sector, industry);
+  console.log(`backfilled ${t} through ${rows[rows.length - 1][0]} [${sector}/${industry}]`);
 }
 
 export async function addTicker(t: string) {
@@ -96,50 +106,38 @@ export async function removeTicker(t: string) {
   await db.execute({ sql: "DELETE FROM history WHERE ticker=?", args: [t] });
 }
 
-// Daily flow: grouped OHLCV -> filter watchlist -> update state -> persist.
-// Cursor is derived (min over state.last_date); the per-ticker guard makes
-// re-fetching old days safe when cursors are heterogeneous (e.g. a fresh
-// backfill behind the others).
+// Daily flow: per-ticker incremental range fetch (each ticker pulls bars after
+// its own last_date — no shared cursor needed). FMP batch endpoints are paid, so
+// one call per watchlist ticker per run.
+// ponytail: N calls/day vs FMP free tier 250/day — fine under ~200 tickers; the daily cron post-close also limits accidental reruns
 export async function daily() {
   const today = fmt(new Date());
-  const cursor = (await db.execute("SELECT min(last_date) v FROM state")).rows[0]?.v;
-  if (!cursor) return;
-  const d = new Date(String(cursor) + "T00:00:00Z");
-  while (true) {
-    d.setUTCDate(d.getUTCDate() + 1);
-    const ds = fmt(d);
-    if (ds > today) break;
-    if (d.getUTCDay() === 0 || d.getUTCDay() === 6) continue;
-    const j = await get(`${BASE}/v2/aggs/grouped/${ds}?adjusted=true`);
-    if (!j.results?.length) {
-      if (ds === today) break; // today not closed yet; retry next run
-      continue; // holiday
-    }
-    const watched = new Set(await watchlist());
-    let n = 0;
-    let lastDs = "";
-    for (const b of j.results) {
-      const t: string = b.T;
-      if (!watched.has(t)) continue;
-      const row = (
-        await db.execute({
-          sql: "SELECT last_close, running_peak, ewma_variance, drawdown_start, age_days, last_date FROM state WHERE ticker=?",
-          args: [t],
-        })
-      ).rows[0] as any;
-      if (!row || row.last_date >= ds) continue; // already processed this day
+  let n = 0;
+  let lastDs = "";
+  for (const t of await watchlist()) {
+    const row = (
+      await db.execute({
+        sql: "SELECT last_close, running_peak, ewma_variance, drawdown_start, age_days, last_date, sector, industry FROM state WHERE ticker=?",
+        args: [t],
+      })
+    ).rows[0] as any;
+    if (!row || row.last_date >= today) continue;
+    const bars = await fmp("historical-price-eod/full", { symbol: t, from: String(row.last_date), to: today });
+    for (const b of [...(Array.isArray(bars) ? bars : [])].sort(asc)) {
+      const ds = String(b.date);
+      if (ds <= row.last_date) continue; // already processed
       const s = {
         prevClose: row.last_close, peak: row.running_peak, peakDate: row.drawdown_start,
         age: row.age_days, ewmaVar: row.ewma_variance,
       };
-      const { dd } = step(s, ds, b.c);
+      const { dd } = step(s, ds, b.close);
       await db.execute({ sql: "INSERT OR REPLACE INTO history VALUES (?,?,?)", args: [t, ds, dd] });
-      await persist(t, s, ds, b.c);
+      await persist(t, s, ds, b.close, undefined, row.sector, row.industry);
       n++;
       lastDs = ds;
     }
-    if (n) console.log(`updated ${n} bars through ${lastDs}`);
   }
+  if (n) console.log(`updated ${n} bars through ${lastDs}`);
 }
 
 export async function stats() {

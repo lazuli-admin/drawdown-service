@@ -4,6 +4,8 @@ type Row = {
   ticker: string;
   last_close: number;
   current_drawdown: number;
+  sector: string;
+  industry: string;
   drawdown_percentile: number;
   ewma_vol: number;
   normalized_drawdown: number;
@@ -108,6 +110,7 @@ export function App() {
             <th>close</th>
             <th>dd</th>
             <th>pct</th>
+            <th>sector</th>
             <th>normDD</th>
             <th>vol</th>
             <th>age</th>
@@ -132,6 +135,7 @@ export function App() {
                 />{" "}
                 {pct(r.drawdown_percentile, 0)}%
               </td>
+              <td className="muted sector" title={r.sector}>{r.industry || "—"}</td>
               <td>{r.normalized_drawdown.toFixed(2)}</td>
               <td>{r.ewma_vol.toFixed(4)}</td>
               <td>{r.age_days}d</td>
