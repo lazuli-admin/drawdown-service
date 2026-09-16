@@ -106,6 +106,21 @@ export async function removeTicker(t: string) {
   await db.execute({ sql: "DELETE FROM history WHERE ticker=?", args: [t] });
 }
 
+// chart metric catalog: fields off the quarterly income statement (+ derived margins),
+// so every metric comes free with the single income-statement call in chart()
+const METRICS: [string, string, (r: any) => number | null][] = [
+  ["revenue", "Revenue", (r) => r.revenue],
+  ["grossProfit", "Gross Profit", (r) => r.grossProfit],
+  ["operatingIncome", "Operating Income", (r) => r.operatingIncome],
+  ["netIncome", "Net Income", (r) => r.netIncome],
+  ["ebitda", "EBITDA", (r) => r.ebitda],
+  ["eps", "EPS", (r) => r.eps],
+  ["grossMargin", "Gross Margin", (r) => (r.revenue ? r.grossProfit / r.revenue : null)],
+  ["operatingMargin", "Operating Margin", (r) => (r.revenue ? r.operatingIncome / r.revenue : null)],
+  ["netMargin", "Net Margin", (r) => (r.revenue ? r.netIncome / r.revenue : null)],
+];
+export const metricOptions = () => METRICS.map(([key, label]) => ({ key, label }));
+
 // Daily flow: per-ticker incremental range fetch (each ticker pulls bars after
 // its own last_date — no shared cursor needed). FMP batch endpoints are paid, so
 // one call per watchlist ticker per run.
@@ -145,16 +160,19 @@ export async function daily() {
 export async function chart(t: string) {
   const to = fmt(new Date());
   const from = fmt(new Date(Date.now() - YEARS * 365.25 * 864e5));
-  const [bars, income] = await Promise.all([
+  const [bars, incomeRaw] = await Promise.all([
     fmp("historical-price-eod/full", { symbol: t, from, to }),
     fmp("income-statement", { symbol: t, period: "quarterly", limit: "120" }).catch(() => []),
   ]);
   const sortBars = [...(Array.isArray(bars) ? bars : [])].sort(asc);
-  const sales = (Array.isArray(income) ? income : [])
-    .map((r: any) => [String(r.date), r.revenue] as [string, number])
-    .filter(([, v]) => v != null)
-    .sort((a, b) => a[0].localeCompare(b[0]));
-  return { bars: sortBars.map((b: any) => [String(b.date), b.close] as [string, number]), sales };
+  const income = (Array.isArray(incomeRaw) ? incomeRaw : []).filter((r: any) => r?.date).sort(asc);
+  const series = Object.fromEntries(
+    METRICS.map(([key, , get]) => [
+      key,
+      income.map((r: any) => [String(r.date), get(r)] as [string, number]).filter(([, v]) => v != null),
+    ]),
+  );
+  return { bars: sortBars.map((b: any) => [String(b.date), b.close] as [string, number]), series };
 }
 
 export async function stats() {
