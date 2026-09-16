@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Chart } from "./Chart.tsx";
 
 type Row = {
   ticker: string;
@@ -44,6 +45,21 @@ export function App() {
   const [data, setData] = useState<Data>();
   const [sym, setSym] = useState("");
   const [err, setErr] = useState("");
+  const BASE = import.meta.env.BASE_URL;
+  const tickerFromPath = () => {
+    const p = decodeURIComponent(location.pathname).slice(BASE.length);
+    return /^[A-Z.]{1,10}$/.test(p) ? p : undefined;
+  };
+  const [sel, setSelState] = useState<string | undefined>(tickerFromPath);
+  const setSel = (t?: string) => {
+    history.pushState(null, "", BASE + (t ?? ""));
+    setSelState(t);
+  };
+  useEffect(() => {
+    const onPop = () => setSelState(tickerFromPath());
+    addEventListener("popstate", onPop);
+    return () => removeEventListener("popstate", onPop);
+  }, []);
 
   // read = pure DB read, never touches the upstream API
   const load = async () => {
@@ -89,6 +105,10 @@ export function App() {
 
   return (
     <>
+      {sel ? (
+        <Chart ticker={sel} onClose={() => setSel(undefined)} />
+      ) : (
+      <>
       <header>
         <h1>drawdown scanner</h1>
         <input
@@ -124,7 +144,9 @@ export function App() {
           {(data?.stats ?? []).map((r) => (
             <tr key={r.ticker}>
               <td>
-                <b>{r.ticker}</b>
+                <b>
+                  <button className="sym" onClick={() => setSel(r.ticker)}>{r.ticker}</button>
+                </b>
               </td>
               <td>{r.last_close.toFixed(2)}</td>
               <td className="neg">{pct(r.current_drawdown, 2)}%</td>
@@ -150,6 +172,8 @@ export function App() {
       </table>
       {data && data.stats.length === 0 && (
         <p className="muted">no tickers yet — add one above</p>
+      )}
+      </>
       )}
     </>
   );

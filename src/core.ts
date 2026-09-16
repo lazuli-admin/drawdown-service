@@ -140,6 +140,23 @@ export async function daily() {
   if (n) console.log(`updated ${n} bars through ${lastDs}`);
 }
 
+// Full price series for the chart view — fetched fresh per open (~2 FMP calls).
+// Revenue overlay: quarterly income statements, best-effort.
+export async function chart(t: string) {
+  const to = fmt(new Date());
+  const from = fmt(new Date(Date.now() - YEARS * 365.25 * 864e5));
+  const [bars, income] = await Promise.all([
+    fmp("historical-price-eod/full", { symbol: t, from, to }),
+    fmp("income-statement", { symbol: t, period: "quarterly", limit: "120" }).catch(() => []),
+  ]);
+  const sortBars = [...(Array.isArray(bars) ? bars : [])].sort(asc);
+  const sales = (Array.isArray(income) ? income : [])
+    .map((r: any) => [String(r.date), r.revenue] as [string, number])
+    .filter(([, v]) => v != null)
+    .sort((a, b) => a[0].localeCompare(b[0]));
+  return { bars: sortBars.map((b: any) => [String(b.date), b.close] as [string, number]), sales };
+}
+
 export async function stats() {
   return (await db.execute("SELECT * FROM state ORDER BY drawdown_percentile DESC")).rows;
 }

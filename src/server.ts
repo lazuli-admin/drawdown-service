@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { readFileSync, existsSync } from "node:fs";
 import cron from "node-cron";
-import { addTicker, removeTicker, stats, history, daily } from "./core.ts";
+import { addTicker, removeTicker, stats, history, daily, chart } from "./core.ts";
 
 const json = (res: any, code: number, body: any) => {
   res.writeHead(code, { "content-type": "application/json" });
@@ -20,6 +20,13 @@ const server = createServer(async (req, res) => {
     }
     const del = pathname.match(/^\/api\/tickers\/([A-Z.]+)$/);
     if (del && req.method === "DELETE") return json(res, 200, { ok: removeTicker(del[1]) });
+    const ch = pathname.match(/^\/api\/chart\/([A-Z.]+)$/);
+    if (ch) return json(res, 200, await chart(ch[1]));
+    if (pathname === "/api/log" && req.method === "POST") {
+      const { error, stack } = JSON.parse(await readBody(req));
+      console.error("[web]", error, "\n", stack);
+      return json(res, 200, { ok: true });
+    }
     if (pathname === "/api/update" && req.method === "POST") {
       await daily();
       return json(res, 200, { ok: true, stats: await stats(), history: await history() });
